@@ -1,132 +1,133 @@
-from flask import Flask
-from database.database import db
-from flask import jsonify, request
-from database.models import User
-from flask import Flask
-from database.database import db
-from flask import jsonify, request, render_template
-from database.models import User
-from flask_jwt_extended import JWTManager, set_access_cookies
-
-# Método para criar um token
-from flask_jwt_extended import create_access_token
-from flask_jwt_extended import jwt_required, get_jwt_identity
-
+from flask import Flask, jsonify, request, render_template, make_response
+import psycopg2
+from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import requests as http_request
 
 app = Flask(__name__, template_folder="templates")
-# configure the SQLite database, relative to the app instance folder
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"
-# initialize the app with the extension
-db.init_app(app)
-# Setup the Flask-JWT-Extended extension
-app.config["JWT_SECRET_KEY"] = "goku-vs-vegeta" 
-# Seta o local onde o token será armazenado
+
+# Configuração do JWT
+app.config["JWT_SECRET_KEY"] = "goku-vs-vegeta"
 app.config['JWT_TOKEN_LOCATION'] = ['cookies']
+
 jwt = JWTManager(app)
+
+
+def get_db_connection():
+    conn = psycopg2.connect(
+            dbname="postgres",
+            user="postgres",
+            password="postgres",
+            host="db",
+            port=5432)
+    return conn
+
+teste = get_db_connection()
+if teste:
+    print("Conectado ao banco de dados com sucesso!")
+
+class User:
+    @staticmethod
+    def find_by_email(email):
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM users WHERE email = %s;", (email,))
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return user
 
 @app.route("/login", methods=["POST"])
 def login():
     username = request.form.get("username", None)
     password = request.form.get("password", None)
-    # Verifica os dados enviados não estão nulos
     if username is None or password is None:
-        # the user was not found on the database
         return render_template("error.html", message="Bad username or password")
-    # faz uma chamada para a criação do token
+
     token_data = http_request.post("http://localhost:5000/token", json={"username": username, "password": password})
     if token_data.status_code != 200:
         return render_template("error.html", message="Bad username or password")
-    # recupera o token
+
     response = make_response(render_template("content.html"))
     set_access_cookies(response, token_data.json()['token'])
     return response
-
-# Restante do código foi suprimido para facilitar a localização nos códigos
-
 
 @app.route("/token", methods=["POST"])
 def create_token():
     username = request.json.get("username", None)
     password = request.json.get("password", None)
-    # Query your database for username and password
-    user = User.query.filter_by(email=username, password=password).first()
-    if user is None:
-        # the user was not found on the database
+    user = User.find_by_email(username)
+    if user is None or user[2] != password:  # Verifique a senha aqui
         return jsonify({"msg": "Bad username or password"}), 401
-    
-    # create a new token with the user id inside
-    access_token = create_access_token(identity=user.id)
-    return jsonify({ "token": access_token, "user_id": user.id })
 
-
-# Restante do código foi suprimido para facilitar a localização nos códigos
+    access_token = create_access_token(identity=user[0])
+    return jsonify({"token": access_token, "user_id": user[0]})
 
 @app.route("/user-register", methods=["GET"])
 def user_register():
     return render_template("register.html")
+
 @app.route("/user-login", methods=["GET"])
 def user_login():
     return render_template("login.html")
-
-app = Flask(__name__)
-# configure the SQLite database, relative to the app instance folder
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///project.db"
-# initialize the app with the extension
-db.init_app(app)
-
-# Verifica se o parâmetro create_db foi passado na linha de comando
-import sys
-if len(sys.argv) > 1 and sys.argv[1] == 'create_db':
-    # cria o banco de dados
-    with app.app_context():
-        db.create_all()
-    # Finaliza a execução do programa
-    print("Database created successfully")
-    sys.exit(0)
 
 @app.route("/")
 def hello_world():
     return "<p>Hello, World!</p>"
 
-# Adicionando as rotas CRUD para a entidade User
 @app.route("/users", methods=["GET"])
 def get_users():
-    users = User.query.all()
-    return_users = []
-    for user in users:
-        return_users.append(user.serialize())
-    return jsonify(return_users)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users;")
+    users = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify([{"id": user[0], "name": user[1], "email": user[2]} for user in users])
 
 @app.route("/users/<int:id>", methods=["GET"])
 def get_user(id):
-    user = User.query.get(id)
-    return jsonify(user.serialize())
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE id = %s;", (id,))
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return jsonify({"id": user[0], "name": user[1], "email": user[2]})
 
 @app.route("/users", methods=["POST"])
 def create_user():
     data = request.json
-    user = User(name=data["name"], email=data["email"], password=data["password"])
-    db.session.add(user)
-    db.session.commit()
-    return jsonify(user.serialize())
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO users (name, email, password) VALUES (%s, %s, %s) RETURNING id;", (data["name"], data["email"], data["password"]))
+    new_user_id = cursor.fetchone()[0]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"id": new_user_id, "name": data["name"], "email": data["email"]})
 
 @app.route("/users/<int:id>", methods=["PUT"])
 def update_user(id):
     data = request.json
-    user = User.query.get(id)
-    user.name = data["name"]
-    user.email = data["email"]
-    user.password = data["password"]
-    db.session.commit()
-    return jsonify(user.serialize())
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET name = %s, email = %s, password = %s WHERE id = %s RETURNING id;", (data["name"], data["email"], data["password"], id))
+    updated_user_id = cursor.fetchone()[0]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"id": updated_user_id, "name": data["name"], "email": data["email"]})
 
 @app.route("/users/<int:id>", methods=["DELETE"])
 def delete_user(id):
-    user = User.query.get(id)
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify(user.serialize())
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM users WHERE id = %s RETURNING id;", (id,))
+    deleted_user_id = cursor.fetchone()[0]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return jsonify({"id": deleted_user_id})
 
 @app.route("/content", methods=["GET"])
 @jwt_required()
@@ -136,3 +137,6 @@ def content():
 @app.route("/error", methods=["GET"])
 def error():
     return render_template("error.html")
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)

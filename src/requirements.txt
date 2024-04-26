@@ -1,0 +1,6 @@
+flask
+Flask-SQLAlchemy
+Flask-JWT-Extended
+requests
+postgrest
+psycopg2-binary
