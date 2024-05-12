@@ -65,3 +65,7 @@ O desenvolvimento realiza foi como parte de um exercício oferecido pelo Profess
 
 ***Atividade*** : https://murilo-zc.github.io/M10-Inteli-Eng-Comp/Encontros/encontro_01/intro_ponderada
 ***Referência do exercício***: https://murilo-zc.github.io/M10-Inteli-Eng-Comp/Encontros/encontro_01/nivel2
+
+## Flutter fazendo requisições POST e GET para o Docker(Flask Backend)
+
+link: https://drive.google.com/file/d/1WMpE_nLtcPsC6UDlH_3_KKSOerRK_25D/view?usp=sharing
