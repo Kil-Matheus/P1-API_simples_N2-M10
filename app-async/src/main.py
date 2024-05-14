@@ -1,5 +1,4 @@
 from flask import Flask, jsonify, request, render_template, make_response
-import psycopg2
 import asyncpg
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import requests as http_request
@@ -14,40 +13,87 @@ app.config['JWT_TOKEN_LOCATION'] = ['cookies']
 
 jwt = JWTManager(app)
 
-# Trasnformando a função em assícrona tambem
+# Função assíncrona para obter conexão com o banco de dados
 async def get_db_connection():
-    conn = await asyncpg.connect(
+    return await asyncpg.connect(
         database="postgres",
         user="postgres",
         password="postgres",
         host="db",
         port=5432
     )
-    return conn
 
-teste = get_db_connection()
-if teste:
-    print("Conectado ao banco de dados com sucesso!")
+# Testando a conexão com o banco de dados
+async def test_db_connection():
+    conn = await get_db_connection()
+    if conn:
+        print("Conectado ao banco de dados com sucesso!")
+    await conn.close()
 
 class User:
     @staticmethod
-    def find_by_email(email):
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE email = %s;", (email,))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
+    async def find_by_email(email):
+        conn = await get_db_connection()
+        user = await conn.fetchrow("SELECT * FROM users WHERE email = $1;", email)
+        await conn.close()
         return user
 
+@app.route('/inicio')
+async def banco_inicio():
+    conn = await get_db_connection()
+    try:
+        rows = await conn.fetch('SELECT * FROM bloco')
+        tasks = [dict(row) for row in rows]
+        return jsonify(tasks)
+    finally:
+        await conn.close()
+
+
+@app.route('/insert', methods=['POST'])
+async def banco_insert():
+    nome = request.form.get('nome')
+    valor = request.form.get('valor')
+
+    conn = await get_db_connection()
+    try:
+        await conn.execute('INSERT INTO bloco VALUES ($1, $2)', nome, valor)
+        return redirect('/inicio')
+    finally:
+        await conn.close()
+
+@app.route('/delete', methods=['POST'])
+async def banco_delete():
+    valor = request.form.get('valor')
+
+    conn = await get_db_connection()
+    try:
+        await conn.execute('DELETE FROM bloco WHERE title = $1', valor)
+        return redirect('/inicio')
+    finally:
+        await conn.close()
+
+@app.route('/edit', methods=['POST'])
+async def banco_edit():
+    title = request.form.get('title')
+    new_title = request.form.get('new_title')
+    new_contents = request.form.get('new_contents')
+
+    conn = await get_db_connection()
+    try:
+        await conn.execute('UPDATE bloco SET title = $1, contents = $2 WHERE title = $3', new_title, new_contents, title)
+        return redirect('/inicio')
+    finally:
+        await conn.close()
+
+
 @app.route("/login", methods=["POST"])
-def login():
+async def login():
     username = request.form.get("username", None)
     password = request.form.get("password", None)
     if username is None or password is None:
         return render_template("error.html", message="Bad username or password")
 
-    token_data = http_request.post("http://localhost:5000/token", json={"username": username, "password": password})
+    token_data = await http_request.post("http://localhost:5000/token", json={"username": username, "password": password})
     if token_data.status_code != 200:
         return render_template("error.html", message="Bad username or password")
 
@@ -56,15 +102,15 @@ def login():
     return response
 
 @app.route("/token", methods=["POST"])
-def create_token():
+async def create_token():
     username = request.json.get("username", None)
     password = request.json.get("password", None)
-    user = User.find_by_email(username)
-    if user is None or user[2] != password:  # Verifique a senha aqui
+    user = await User.find_by_email(username)
+    if user is None or user['password'] != password:  # Verifique a senha aqui
         return jsonify({"msg": "Bad username or password"}), 401
 
-    access_token = create_access_token(identity=user[0])
-    return jsonify({"token": access_token, "user_id": user[0]})
+    access_token = create_access_token(identity=user['id'])
+    return jsonify({"token": access_token, "user_id": user['id']})
 
 @app.route("/user-register", methods=["GET"])
 def user_register():
@@ -78,59 +124,41 @@ def user_login():
 def hello_world():
     return "<p>Hello, World!</p>"
 
-# Alterado para função Assíncorna
 @app.route("/users", methods=["GET"])
 async def get_users():
     conn = await get_db_connection()
-    async with conn.transaction():
-        users = await conn.fetch("SELECT * FROM users;")
+    users = await conn.fetch("SELECT * FROM users;")
     await conn.close()
     return jsonify([{"id": user['id'], "name": user['name'], "email": user['email']} for user in users])
 
 @app.route("/users/<int:id>", methods=["GET"])
-def get_user(id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE id = %s;", (id,))
-    user = cursor.fetchone()
-    cursor.close()
-    conn.close()
-    return jsonify({"id": user[0], "name": user[1], "email": user[2]})
+async def get_user(id):
+    conn = await get_db_connection()
+    user = await conn.fetchrow("SELECT * FROM users WHERE id = $1;", id)
+    await conn.close()
+    return jsonify({"id": user['id'], "name": user['name'], "email": user['email']})
 
-# Alterado para função Assíncorna
 @app.route("/users", methods=["POST"])
 async def create_user():
-    #print(f'Tempo Inicial:', {asyncio.get_event_loop().time()})
-    print(f'Tempo Inicial:', time.time())
     data = request.json
     conn = await get_db_connection()
-    async with conn.transaction():
-        new_user_id = await conn.fetchval("INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id;", data["name"], data["email"], data["password"])
-    #print(f'Tempo Final:', {asyncio.get_event_loop().time()})
-    print(f'Tempo Final:', time.time())    
+    new_user_id = await conn.fetchval("INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id;", data["name"], data["email"], data["password"])
+    await conn.close()
     return jsonify({"id": new_user_id, "name": data["name"], "email": data["email"]})
 
 @app.route("/users/<int:id>", methods=["PUT"])
-def update_user(id):
+async def update_user(id):
     data = request.json
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET name = %s, email = %s, password = %s WHERE id = %s RETURNING id;", (data["name"], data["email"], data["password"], id))
-    updated_user_id = cursor.fetchone()[0]
-    conn.commit()
-    cursor.close()
-    conn.close()
+    conn = await get_db_connection()
+    updated_user_id = await conn.fetchval("UPDATE users SET name = $1, email = $2, password = $3 WHERE id = $4 RETURNING id;", data["name"], data["email"], data["password"], id)
+    await conn.close()
     return jsonify({"id": updated_user_id, "name": data["name"], "email": data["email"]})
 
 @app.route("/users/<int:id>", methods=["DELETE"])
-def delete_user(id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM users WHERE id = %s RETURNING id;", (id,))
-    deleted_user_id = cursor.fetchone()[0]
-    conn.commit()
-    cursor.close()
-    conn.close()
+async def delete_user(id):
+    conn = await get_db_connection()
+    deleted_user_id = await conn.fetchval("DELETE FROM users WHERE id = $1 RETURNING id;", id)
+    await conn.close()
     return jsonify({"id": deleted_user_id})
 
 @app.route("/content", methods=["GET"])
@@ -143,4 +171,6 @@ def error():
     return render_template("error.html")
 
 if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(test_db_connection())
     app.run(host="0.0.0.0", port=5000, debug=True)
