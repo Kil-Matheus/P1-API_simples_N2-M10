@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, make_response
+from flask import Flask, jsonify, request, render_template, make_response, redirect
 import asyncpg
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 import requests as http_request
@@ -56,18 +56,19 @@ async def banco_insert():
 
     conn = await get_db_connection()
     try:
-        await conn.execute('INSERT INTO bloco VALUES ($1, $2)', nome, valor)
+        await conn.execute('INSERT INTO bloco (title, contents) VALUES ($1, $2)', nome, valor)
         return redirect('/inicio')
     finally:
         await conn.close()
 
 @app.route('/delete', methods=['POST'])
 async def banco_delete():
-    valor = request.form.get('valor')
+    data = request.json
+    id_to_delete = data.get('id')
 
     conn = await get_db_connection()
     try:
-        await conn.execute('DELETE FROM bloco WHERE title = $1', valor)
+        await conn.execute('DELETE FROM bloco WHERE id = $1', id_to_delete)
         return redirect('/inicio')
     finally:
         await conn.close()
@@ -81,7 +82,6 @@ async def banco_edit():
     conn = await get_db_connection()
     try:
         await conn.execute('UPDATE bloco SET title = $1, contents = $2 WHERE title = $3', new_title, new_contents, title)
-        return redirect('/inicio')
     finally:
         await conn.close()
 

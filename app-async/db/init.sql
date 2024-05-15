@@ -6,8 +6,9 @@ CREATE TABLE users (
 );
 
 CREATE TABLE bloco (
-    title TEXT PRIMARY KEY,
+    id SERIAL PRIMARY KEY,
+    title TEXT,
     contents TEXT
 );
 
-INSERT INTO bloco VALUES ('Teste', 'Valor criar direto do init.sql');
+INSERT INTO bloco (title, contents) VALUES ('Teste', 'Valor criar direto do init.sql');
