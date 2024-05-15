@@ -64,7 +64,7 @@ async def banco_insert():
 @app.route('/delete', methods=['POST'])
 async def banco_delete():
     data = request.json
-    id_to_delete = data.get('id')
+    id_to_delete = int(data.get('id'))
 
     conn = await get_db_connection()
     try:
@@ -75,13 +75,14 @@ async def banco_delete():
 
 @app.route('/edit', methods=['POST'])
 async def banco_edit():
-    title = request.form.get('title')
-    new_title = request.form.get('new_title')
-    new_contents = request.form.get('new_contents')
+    data = request.json
+    title_id = int(data.get('id'))
+    new_contents = data.get('new_contents')
 
     conn = await get_db_connection()
     try:
-        await conn.execute('UPDATE bloco SET title = $1, contents = $2 WHERE title = $3', new_title, new_contents, title)
+        await conn.execute('UPDATE bloco SET contents = $1 WHERE id = $2', new_contents, title_id)
+        return jsonify({'status': 'ok'})
     finally:
         await conn.close()
 
